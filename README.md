@@ -32,13 +32,41 @@
 
 ## HTTP 接口
 
-路由以插件目录名作为前缀。假设插件目录名为 `call_me_by_api`，AstrBot 监听 `6185` 端口：
+路由前缀会自动注册三个别名，用哪个都行：
+
+- 插件目录名，例如 `call_me_by_api`
+- metadata 里的插件名，例如 `astrbot_plugin_call_me_by_api`
+- 去掉 `astrbot_plugin_` 前缀的短名，例如 `call_me_by_api`
+
+假设 AstrBot 监听 `6185` 端口：
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | POST | `/api/v1/plugins/extensions/call_me_by_api/v1/messages` | 发起对话（Anthropic Messages） |
 | GET | `/api/v1/plugins/extensions/call_me_by_api/v1/models` | 查询模型列表 |
 | GET | `/api/v1/plugins/extensions/call_me_by_api/v1/models/<model_id>` | 查询单个模型 |
+
+模型列表同时包含 Anthropic（`type`/`created_at`）和 OpenAI（`object`/`created`）字段，返回形如：
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "type": "model",
+      "object": "model",
+      "id": "qingkong143-flash-4.1-arbirated",
+      "display_name": "qingkong143-flash-4.1-arbirated",
+      "created_at": "2026-01-01T00:00:00Z",
+      "created": 1767225600,
+      "owned_by": "call_me_by_api"
+    }
+  ],
+  "has_more": false
+}
+```
+
+> 如果这里返回的是 `{"status":"error","message":"未找到该路由","data":{}}`，说明请求没有匹配到插件子路由：请确认 AstrBot 里运行的是最新插件代码、插件已重新加载，并且 URL 前缀是上面三个别名之一。
 
 ## 鉴权
 
@@ -61,6 +89,7 @@
 | `401 Invalid API key` | 平台 API Key 错误或已撤销 |
 | `403 Insufficient API key scope` | Key 有效，但创建时**没有勾选 `plugin` 权限** |
 | `401 无效的 API Key` | 开启了插件层校验，但 `x-api-key` 不匹配（插件返回） |
+| `200 {"status":"error","message":"未找到该路由","data":{}}` | 插件子路由未注册：URL 前缀不对、插件未更新或未重新加载 |
 
 `?limit=1000` 这类分页参数不影响鉴权；模型列表接口会忽略它。
 

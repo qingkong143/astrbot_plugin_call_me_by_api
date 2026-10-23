@@ -15,12 +15,13 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api.web import json_response, request, stream_response
 
 PLUGIN_DIR = Path(__file__).resolve().parent.name
-ROUTE = f"/{PLUGIN_DIR}/v1/messages"
-MODELS_ROUTE = f"/{PLUGIN_DIR}/v1/models"
-MODEL_ROUTE = f"/{PLUGIN_DIR}/v1/models/<model_id>"
+MESSAGES_PATH = "/v1/messages"
+MODELS_PATH = "/v1/models"
+MODEL_PATH = "/v1/models/<model_id>"
 
-# Anthropic Models API 返回的模型创建时间（固定值，仅用于兼容客户端）。
+# Models API 返回的模型创建时间（固定值，仅用于兼容客户端）。
 MODEL_CREATED_AT = "2026-01-01T00:00:00Z"
+MODEL_CREATED_TS = 1767225600  # 同一时间的 Unix 时间戳，供 OpenAI 风格客户端使用
 
 # 配置默认值，需与 _conf_schema.json 保持一致。
 CONF_DEFAULTS: dict[str, Any] = {
@@ -56,7 +57,7 @@ class Pending:
     created_at: float
 
 
-@register("call_me_by_api", "qingkong143", "将 AstrBot 私聊封装成 Anthropic 兼容 API", "1.1.0")
+@register("call_me_by_api", "qingkong143", "将 AstrBot 私聊封装成 Anthropic 兼容 API", "1.1.1")
 class MyPlugin(Star):
     def __init__(self, context: Context, config: dict[str, Any] | None = None):
         super().__init__(context)
@@ -66,9 +67,29 @@ class MyPlugin(Star):
         self._owner_umo: str | None = None
         self._owner_sender: str | None = None
         self._load_config()
-        context.register_web_api(ROUTE, self.messages, ["POST"], "Anthropic 兼容接口")
-        context.register_web_api(MODELS_ROUTE, self.models, ["GET"], "模型列表")
-        context.register_web_api(MODEL_ROUTE, self.model, ["GET"], "模型详情")
+        # 同时兼容插件目录名与 metadata 插件名，避免部署后路径前缀不一致。
+        for prefix in self._route_prefixes():
+            context.register_web_api(
+                f"/{prefix}{MESSAGES_PATH}", self.messages, ["POST"], "Anthropic 兼容接口"
+            )
+            context.register_web_api(
+                f"/{prefix}{MODELS_PATH}", self.models, ["GET"], "模型列表"
+            )
+            context.register_web_api(
+                f"/{prefix}{MODEL_PATH}", self.model, ["GET"], "模型详情"
+            )
+
+    def _route_prefixes(self) -> list[str]:
+        """返回可用的路由前缀：目录名、metadata 插件名及其去掉前缀后的短名。"""
+        names = {PLUGIN_DIR}
+        name = getattr(self, "name", None)
+        if isinstance(name, str) and name.strip():
+            name = name.strip()
+            names.add(name)
+            prefix = "astrbot_plugin_"
+            if name.startswith(prefix):
+                names.add(name[len(prefix):])
+        return sorted(names)
 
     def _load_config(self) -> None:
         """从插件配置中读取运行时参数，非法值回退到默认值。"""
@@ -88,9 +109,10 @@ class MyPlugin(Star):
         if self._require_api_key:
             await self._ensure_api_key()
         logger.info(
-            "call_me_by_api 已加载：model=%s timeout=%ss keepalive=%ss auth=%s",
+            "call_me_by_api 已加载：model=%s timeout=%ss keepalive=%ss auth=%s routes=%s",
             self._model_id, self._timeout, self._keepalive,
             "on" if self._require_api_key else "off",
+            ", ".join(self._route_prefixes()),
         )
 
     # ---------- HTTP 入口 ----------
@@ -134,7 +156,10 @@ class MyPlugin(Star):
         if denied is not None:
             return denied
         entry = self._model_entry()
+        # 同时带上 OpenAI（object/created）和 Anthropic（type/created_at）字段，
+        # 方便各类客户端解析模型列表。
         return json_response({
+            "object": "list",
             "data": [entry],
             "has_more": False,
             "first_id": entry["id"],
@@ -153,9 +178,12 @@ class MyPlugin(Star):
     def _model_entry(self) -> dict[str, Any]:
         return {
             "type": "model",
+            "object": "model",
             "id": self._model_id,
             "display_name": self._model_display_name,
             "created_at": MODEL_CREATED_AT,
+            "created": MODEL_CREATED_TS,
+            "owned_by": "call_me_by_api",
         }
 
     # ---------- 请求登记与等待 ----------
