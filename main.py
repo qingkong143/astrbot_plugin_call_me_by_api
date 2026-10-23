@@ -23,12 +23,15 @@ MODEL_PATH = "/v1/models/<model_id>"
 MODEL_CREATED_AT = "2026-01-01T00:00:00Z"
 MODEL_CREATED_TS = 1767225600  # 同一时间的 Unix 时间戳，供 OpenAI 风格客户端使用
 
+# 客户端（如 Claude Code）会往用户消息里塞系统提醒，转发前去掉。
+SYSTEM_REMINDER_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.S | re.I)
+BLANK_LINES_RE = re.compile(r"\n{3,}")
+
 # 配置默认值，需与 _conf_schema.json 保持一致。
 CONF_DEFAULTS: dict[str, Any] = {
     "reply_timeout": 300,
     "stream_keepalive": 15,
     "max_chars": 4000,
-    "history_messages": 6,
     "model_id": "qingkong143-flash-4.1-arbirated",
     "model_display_name": "qingkong143-flash-4.1-arbirated",
     # 平台鉴权（require_plugin_scope）已经覆盖插件路由，插件层默认关闭。
@@ -53,7 +56,7 @@ class Pending:
     created_at: float
 
 
-@register("call_me_by_api", "qingkong143", "将 AstrBot 私聊封装成 Anthropic 兼容 API", "1.1.3")
+@register("call_me_by_api", "qingkong143", "将 AstrBot 私聊封装成 Anthropic 兼容 API", "1.1.4")
 class MyPlugin(Star):
     def __init__(self, context: Context, config: dict[str, Any] | None = None):
         super().__init__(context)
@@ -92,7 +95,6 @@ class MyPlugin(Star):
         self._timeout = self._conf_int("reply_timeout", minimum=1)
         self._keepalive = self._conf_int("stream_keepalive", minimum=1)
         self._max_chars = self._conf_int("max_chars", minimum=1)
-        self._history = self._conf_int("history_messages", minimum=0)
         self._model_id = self._conf_str("model_id")
         self._model_display_name = self._conf_str("model_display_name")
         self._require_api_key = self._conf_bool("require_api_key")
@@ -194,10 +196,9 @@ class MyPlugin(Star):
         ok = await self.context.send_message(
             self._owner_umo,
             MessageChain().message(
-                f"📨 API 调用 #{req_id}\n"
-                f"model: {payload['model']}\n\n"
+                f"#{req_id}\n"
                 f"{self._render(payload)}\n\n"
-                f"回复：/apireply {req_id} <内容>"
+                f"/apireply {req_id} <内容>"
             ),
         )
         if not ok:
@@ -407,87 +408,30 @@ class MyPlugin(Star):
                 return rid
 
     def _render(self, payload: dict[str, Any]) -> str:
-        limit = max(1, self._max_chars)
-        # system/tools 只保留一小部分预算，避免把真正的对话内容挤掉。
-        side_cap = max(200, limit // 5)
-
-        sections: list[tuple[str, str]] = []
-        system = payload.get("system")
-        if system:
-            sections.append((
-                "system",
-                self._clip(self._content_text(system), side_cap, "system 已截断"),
-            ))
-        # 工具/命令类请求不特殊处理，直接把工具定义和选择一并转给人看。
-        tools_text = self._tools_text(payload.get("tools"))
-        if tools_text:
-            sections.append(("tools", self._clip(tools_text, side_cap, "tools 已截断")))
-        if payload.get("tool_choice") is not None:
-            sections.append((
-                "tool_choice",
-                self._clip(
-                    json.dumps(payload["tool_choice"], ensure_ascii=False),
-                    side_cap,
-                    "tool_choice 已截断",
-                ),
-            ))
-
+        """只取最后一条用户消息的正文，system/tools/历史一律不转发。"""
         messages = payload.get("messages") or []
-        # history_messages=0 表示不转发历史，注意不能用 [-0:]（等价于整个列表）。
-        if self._history > 0:
-            messages = messages[-self._history:]
+        target = None
+        for m in reversed(messages):
+            if isinstance(m, dict) and m.get("role") == "user":
+                target = m
+                break
+        if target is None and messages:
+            target = messages[-1]
+
+        if isinstance(target, dict):
+            text = self._content_text(target.get("content"))
+        elif target is not None:
+            text = str(target)
         else:
-            messages = []
-        for m in messages:
-            role = {"user": "用户", "assistant": "助手"}.get(m.get("role"), m.get("role"))
-            sections.append((str(role), self._content_text(m.get("content"))))
+            text = ""
 
-        # 从最新内容向前填充预算：保证最后一条消息优先保留。
-        selected: list[str] = []
-        remaining = limit
-        omitted_older = False
-        for idx in range(len(sections) - 1, -1, -1):
-            label, body = sections[idx]
-            block = f"【{label}】\n{body}"
-            sep = 2 if selected else 0
-            if len(block) + sep <= remaining:
-                selected.insert(0, block)
-                remaining -= len(block) + sep
-                continue
-            if not selected:
-                # 最新一段本身就超长：保留开头，按剩余预算截断。
-                keep = max(0, remaining - len(label) - 5)
-                selected.insert(0, f"【{label}】\n{body[:keep]}…（已截断）")
-                # 截断的是最新一段，只有它前面还有段落时才算省略了更早内容。
-                omitted_older = idx > 0
-            else:
-                # 当前这段及其之前的段落都放不下了。
-                omitted_older = True
-            break
+        text = SYSTEM_REMINDER_RE.sub("", text)
+        text = BLANK_LINES_RE.sub("\n\n", text).strip()
 
-        if omitted_older:
-            selected.insert(0, "…（更早内容已省略）")
-        return "\n\n".join(selected)
-
-    @staticmethod
-    def _clip(text: str, cap: int, note: str) -> str:
-        if len(text) <= cap:
-            return text
-        return text[:cap] + f"\n…（{note}）"
-
-    def _tools_text(self, tools: Any) -> str:
-        """把 tools 定义压缩成名字/描述列表，避免占用过多转发长度。"""
-        if not isinstance(tools, list) or not tools:
-            return ""
-        lines = []
-        for tool in tools:
-            if not isinstance(tool, dict):
-                lines.append(f"- {tool}")
-                continue
-            name = tool.get("name", "?")
-            desc = str(tool.get("description") or "").strip()
-            lines.append(f"- {name}: {desc}" if desc else f"- {name}")
-        return "\n".join(lines)
+        limit = max(1, self._max_chars)
+        if len(text) > limit:
+            text = text[:limit] + "\n…（已截断）"
+        return text or "（空消息）"
 
     def _content_text(self, content: Any) -> str:
         if isinstance(content, str):

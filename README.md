@@ -5,8 +5,8 @@
 - 兼容 Anthropic Messages API（支持流式 SSE）
 - 提供 `/v1/models` 模型查询接口
 - 可选插件层 API Key：可自定义 `sk-` key，留空自动生成
-- 工具/命令类请求不做特殊处理，直接转发到私聊由人工查看
-- 超时、保活、截断长度、历史条数等均可配置
+- 只转发最后一条用户消息正文，自动丢弃超长 system/tools/历史
+- 超时、保活、截断长度等均可配置
 
 ## 安装与绑定
 
@@ -24,8 +24,7 @@
 | `api_key` | string | 空 | 启用插件层校验时使用；留空会自动生成 `sk-` 随机串并写回配置 |
 | `reply_timeout` | int | `300` | 等待人工回复的超时时间（秒） |
 | `stream_keepalive` | int | `15` | 流式响应期间发送 SSE ping 的间隔（秒） |
-| `max_chars` | int | `4000` | 转发文本最大字符数；超出时优先保留最新消息，system/tools 各最多占 1/5 |
-| `history_messages` | int | `6` | 转发到私聊的历史消息条数 |
+| `max_chars` | int | `4000` | 转发正文的最大字符数，超出截断 |
 | `model_id` | string | `qingkong143-flash-4.1-arbirated` | 对外展示的模型 ID |
 | `model_display_name` | string | `qingkong143-flash-4.1-arbirated` | 模型列表中显示的名称 |
 
@@ -160,17 +159,20 @@ curl -X POST \
 
 > 如果希望客户端只带 `sk-...` 就能访问，需要让插件绕过平台路由、自行监听一个端口。当前版本未实现该模式。
 
-## 工具调用 / 非常规请求
+## 转发格式
 
-插件不执行工具，也不对工具类请求做拦截或改写。请求里出现以下内容时，原样转发到绑定的私聊，由你人工查看并决定怎么回复：
+插件只转发**最后一条用户消息的正文**，`system`、`tools`、`tool_choice` 和历史消息全部丢弃。绑定私聊里看到的就是：
 
-- `tools`：以 `【tools】` 列出工具名和描述
-- `tool_choice`：以 `【tool_choice】` 输出原始 JSON
-- 消息中的 `tool_use` / `tool_result` 内容块：渲染为 `[tool_use ...]` / `[tool_result]`
+```
+#e98d7a74
+帮我分析一下 main.py 里的鉴权逻辑
 
-回复方式不变：`/apireply <请求ID> <内容>`，该内容会作为普通文本响应返回调用方。
+/apireply e98d7a74 <内容>
+```
 
-转发内容超过 `max_chars` 时，会优先保留最新的用户消息；`system` 与 `tools` 各自最多占 1/5，更早的内容会以 `…（更早内容已省略）` 标注。这样即使客户端的 system prompt 很长，真正要处理的请求也不会被截掉。
+因此无论客户端（Claude Code、DeepSeek harness 等）的 system prompt 和工具定义有多长，都不会挤占转发内容。用户消息里的 `<system-reminder>...</system-reminder>` 也会被剔除，并压缩多余空行。正文超过 `max_chars` 时按 `max_chars` 截断。
+
+回复方式不变：`/apireply <请求ID> <内容>`，该内容会作为普通文本响应返回调用方。插件不执行工具；工具类请求经过本流程后同样只保留当轮用户正文，由人工回复。
 
 ## 相关链接
 

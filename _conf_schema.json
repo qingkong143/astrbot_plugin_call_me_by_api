@@ -20,14 +20,9 @@
     "default": 15
   },
   "max_chars": {
-    "description": "转发到私聊的请求文本最大字符数。超出时优先保留最新消息，system/tools 各最多占 1/5。",
+    "description": "转发到私聊的正文最大字符数，超出部分会被截断。",
     "type": "int",
     "default": 4000
-  },
-  "history_messages": {
-    "description": "转发到私聊的历史消息条数，仅取最后 N 条（0 表示不转发历史）。",
-    "type": "int",
-    "default": 6
   },
   "model_id": {
     "description": "对外展示和 /v1/models 查询接口中返回的模型 ID。",
