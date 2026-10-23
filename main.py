@@ -31,7 +31,8 @@ CONF_DEFAULTS: dict[str, Any] = {
     "model_id": "qingkong143-flash-4.1-arbirated",
     "model_display_name": "qingkong143-flash-4.1-arbirated",
     "tool_call_error_message": "不支持工具调用",
-    "require_api_key": True,
+    # 平台鉴权（require_plugin_scope）已经覆盖插件路由，插件层默认关闭。
+    "require_api_key": False,
     "api_key": "",
 }
 
@@ -84,7 +85,8 @@ class MyPlugin(Star):
     async def initialize(self):
         self._owner_umo = await self.get_kv_data("owner_umo", None)
         self._owner_sender = await self.get_kv_data("owner_sender", None)
-        await self._ensure_api_key()
+        if self._require_api_key:
+            await self._ensure_api_key()
         logger.info(
             "call_me_by_api 已加载：model=%s timeout=%ss keepalive=%ss auth=%s",
             self._model_id, self._timeout, self._keepalive,
@@ -259,6 +261,14 @@ class MyPlugin(Star):
             yield event.plain_result("请在私聊中执行 /apikey")
             return
         if self._owner_umo and event.unified_msg_origin != self._owner_umo:
+            return
+
+        if not self._require_api_key:
+            yield event.plain_result(
+                "插件层 API Key 校验已关闭（require_api_key=false）。\n"
+                "请求仅由 AstrBot 平台鉴权保护，请使用带 plugin 权限的 AstrBot API Key。\n"
+                "如需启用插件层校验，请在插件配置中开启 require_api_key 并设置 api_key。"
+            )
             return
 
         parts = event.message_str.strip().split(maxsplit=1)

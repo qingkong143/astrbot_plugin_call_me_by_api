@@ -1,8 +1,8 @@
 {
   "require_api_key": {
-    "description": "是否校验插件层 API Key。AstrBot 平台鉴权始终存在；关闭此项后仅依赖平台鉴权。",
+    "description": "是否额外校验插件层 API Key。默认关闭：AstrBot 平台鉴权（plugin 权限）已覆盖所有插件路由，开启后会多校验一层 x-api-key。",
     "type": "bool",
-    "default": true
+    "default": false
   },
   "api_key": {
     "description": "插件层 API Key，Anthropic 客户端通过 x-api-key 请求头传入。留空时首次启动会自动生成 sk- 随机密钥并写回本配置。",
