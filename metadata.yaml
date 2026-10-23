@@ -3,4 +3,4 @@ display_name: 调用我 # 用于展示的名字，可以是方便人类阅读的
 desc: 将自己封装成 Anthropic 兼容 API，通过私聊人工回复；支持流式响应与模型查询，不支持工具调用。
 version: v1.1.1
 author: qingkong143
-repo: https://github.com/Soulter/helloworld
+repo: https://github.com/qingkong143/astrbot_plugin_call_me_by_api
