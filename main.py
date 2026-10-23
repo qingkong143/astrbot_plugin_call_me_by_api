@@ -31,14 +31,10 @@ CONF_DEFAULTS: dict[str, Any] = {
     "history_messages": 6,
     "model_id": "qingkong143-flash-4.1-arbirated",
     "model_display_name": "qingkong143-flash-4.1-arbirated",
-    "tool_call_error_message": "不支持工具调用",
     # 平台鉴权（require_plugin_scope）已经覆盖插件路由，插件层默认关闭。
     "require_api_key": False,
     "api_key": "",
 }
-
-# 出现这些内容块即视为工具调用请求。
-TOOL_BLOCK_TYPES = frozenset({"tool_use", "tool_result"})
 
 
 class RelayError(Exception):
@@ -57,7 +53,7 @@ class Pending:
     created_at: float
 
 
-@register("call_me_by_api", "qingkong143", "将 AstrBot 私聊封装成 Anthropic 兼容 API", "1.1.1")
+@register("call_me_by_api", "qingkong143", "将 AstrBot 私聊封装成 Anthropic 兼容 API", "1.1.2")
 class MyPlugin(Star):
     def __init__(self, context: Context, config: dict[str, Any] | None = None):
         super().__init__(context)
@@ -99,7 +95,6 @@ class MyPlugin(Star):
         self._history = self._conf_int("history_messages", minimum=0)
         self._model_id = self._conf_str("model_id")
         self._model_display_name = self._conf_str("model_display_name")
-        self._tool_error_message = self._conf_str("tool_call_error_message")
         self._require_api_key = self._conf_bool("require_api_key")
         self._api_key = self._conf_str("api_key", allow_empty=True)
 
@@ -347,8 +342,6 @@ class MyPlugin(Star):
 
     # ---------- 工具方法 ----------
     def _validate(self, p: dict[str, Any]):
-        # 先拦截工具调用，保证这类请求总是得到明确的“不支持工具调用”错误。
-        self._reject_tool_calls(p)
         if not isinstance(p.get("model"), str) or not p["model"].strip():
             raise RelayError("model 不能为空", "invalid_request_error", 400)
         mt = p.get("max_tokens")
@@ -357,26 +350,6 @@ class MyPlugin(Star):
         msgs = p.get("messages")
         if not isinstance(msgs, list) or not msgs:
             raise RelayError("messages 不能为空", "invalid_request_error", 400)
-
-    def _reject_tool_calls(self, p: dict[str, Any]) -> None:
-        """本插件无法执行工具调用，收到任何工具请求直接返回错误。"""
-        tools = p.get("tools")
-        if isinstance(tools, list) and tools:
-            self._raise_tool_error()
-        if p.get("tool_choice") is not None:
-            self._raise_tool_error()
-        for m in p.get("messages") or []:
-            if not isinstance(m, dict):
-                continue
-            content = m.get("content")
-            if not isinstance(content, list):
-                continue
-            for block in content:
-                if isinstance(block, dict) and block.get("type") in TOOL_BLOCK_TYPES:
-                    self._raise_tool_error()
-
-    def _raise_tool_error(self):
-        raise RelayError(self._tool_error_message, "invalid_request_error", 400)
 
     # ---------- 插件层鉴权 ----------
     async def _authorize(self):
@@ -438,6 +411,15 @@ class MyPlugin(Star):
         system = payload.get("system")
         if system:
             parts.append("【system】\n" + self._content_text(system))
+        # 工具/命令类请求不特殊处理，直接把工具定义和选择一并转给人看。
+        tools_text = self._tools_text(payload.get("tools"))
+        if tools_text:
+            parts.append("【tools】\n" + tools_text)
+        if payload.get("tool_choice") is not None:
+            parts.append(
+                "【tool_choice】\n"
+                + json.dumps(payload["tool_choice"], ensure_ascii=False)
+            )
         messages = payload.get("messages") or []
         # history_messages=0 表示不转发历史，注意不能用 [-0:]（等价于整个列表）。
         if self._history > 0:
@@ -451,6 +433,20 @@ class MyPlugin(Star):
         if len(text) > self._max_chars:
             text = text[: self._max_chars] + "\n…（已截断）"
         return text
+
+    def _tools_text(self, tools: Any) -> str:
+        """把 tools 定义压缩成名字/描述列表，避免占用过多转发长度。"""
+        if not isinstance(tools, list) or not tools:
+            return ""
+        lines = []
+        for tool in tools:
+            if not isinstance(tool, dict):
+                lines.append(f"- {tool}")
+                continue
+            name = tool.get("name", "?")
+            desc = str(tool.get("description") or "").strip()
+            lines.append(f"- {name}: {desc}" if desc else f"- {name}")
+        return "\n".join(lines)
 
     def _content_text(self, content: Any) -> str:
         if isinstance(content, str):

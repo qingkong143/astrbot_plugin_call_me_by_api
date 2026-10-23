@@ -5,7 +5,7 @@
 - 兼容 Anthropic Messages API（支持流式 SSE）
 - 提供 `/v1/models` 模型查询接口
 - 可选插件层 API Key：可自定义 `sk-` key，留空自动生成
-- 请求中出现工具调用时，强制返回 `不支持工具调用` 错误
+- 工具/命令类请求不做特殊处理，直接转发到私聊由人工查看
 - 超时、保活、截断长度、历史条数等均可配置
 
 ## 安装与绑定
@@ -28,7 +28,6 @@
 | `history_messages` | int | `6` | 转发到私聊的历史消息条数 |
 | `model_id` | string | `qingkong143-flash-4.1-arbirated` | 对外展示的模型 ID |
 | `model_display_name` | string | `qingkong143-flash-4.1-arbirated` | 模型列表中显示的名称 |
-| `tool_call_error_message` | string | `不支持工具调用` | 收到工具调用请求时返回的错误信息 |
 
 ## HTTP 接口
 
@@ -161,21 +160,15 @@ curl -X POST \
 
 > 如果希望客户端只带 `sk-...` 就能访问，需要让插件绕过平台路由、自行监听一个端口。当前版本未实现该模式。
 
-## 工具调用
+## 工具调用 / 非常规请求
 
-本插件不执行任何工具。请求中出现以下任一内容时，返回 HTTP 400：
+插件不执行工具，也不对工具类请求做拦截或改写。请求里出现以下内容时，原样转发到绑定的私聊，由你人工查看并决定怎么回复：
 
-```json
-{
-  "type": "error",
-  "error": {
-    "type": "invalid_request_error",
-    "message": "不支持工具调用"
-  }
-}
-```
+- `tools`：以 `【tools】` 列出工具名和描述
+- `tool_choice`：以 `【tool_choice】` 输出原始 JSON
+- 消息中的 `tool_use` / `tool_result` 内容块：渲染为 `[tool_use ...]` / `[tool_result]`
 
-判定条件：`tools` 非空、显式指定了 `tool_choice`，或消息中包含 `tool_use` / `tool_result` 内容块。
+回复方式不变：`/apireply <请求ID> <内容>`，该内容会作为普通文本响应返回调用方。
 
 ## 相关链接
 

@@ -38,10 +38,5 @@
     "description": "模型列表中显示的模型名称。",
     "type": "string",
     "default": "qingkong143-flash-4.1-arbirated"
-  },
-  "tool_call_error_message": {
-    "description": "请求中包含工具调用时返回给调用方的错误信息。",
-    "type": "string",
-    "default": "不支持工具调用"
   }
 }
