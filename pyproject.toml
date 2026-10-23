@@ -1,0 +1,19 @@
+[project]
+name = "astr-me"
+version = "1.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "qingkong143", email = "torch@318670.xyz" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "astrbot>=4.29.1",
+]
+
+[project.scripts]
+astr-me = "astr_me:main"
+
+[build-system]
+requires = ["uv_build>=0.12.15,<0.13.0"]
+build-backend = "uv_build"

@@ -1,0 +1,47 @@
+{
+  "require_api_key": {
+    "description": "是否校验插件层 API Key。AstrBot 平台鉴权始终存在；关闭此项后仅依赖平台鉴权。",
+    "type": "bool",
+    "default": true
+  },
+  "api_key": {
+    "description": "插件层 API Key，Anthropic 客户端通过 x-api-key 请求头传入。留空时首次启动会自动生成 sk- 随机密钥并写回本配置。",
+    "type": "string",
+    "default": ""
+  },
+  "reply_timeout": {
+    "description": "等待人工回复的超时时间（秒），超时后向调用方返回错误。",
+    "type": "int",
+    "default": 300
+  },
+  "stream_keepalive": {
+    "description": "流式响应期间发送 SSE ping 的间隔（秒）。",
+    "type": "int",
+    "default": 15
+  },
+  "max_chars": {
+    "description": "转发到私聊的请求文本最大字符数，超出部分会被截断。",
+    "type": "int",
+    "default": 4000
+  },
+  "history_messages": {
+    "description": "转发到私聊的历史消息条数，仅取最后 N 条（0 表示不转发历史）。",
+    "type": "int",
+    "default": 6
+  },
+  "model_id": {
+    "description": "对外展示和 /v1/models 查询接口中返回的模型 ID。",
+    "type": "string",
+    "default": "qingkong143-flash-4.1-arbirated"
+  },
+  "model_display_name": {
+    "description": "模型列表中显示的模型名称。",
+    "type": "string",
+    "default": "qingkong143-flash-4.1-arbirated"
+  },
+  "tool_call_error_message": {
+    "description": "请求中包含工具调用时返回给调用方的错误信息。",
+    "type": "string",
+    "default": "不支持工具调用"
+  }
+}
