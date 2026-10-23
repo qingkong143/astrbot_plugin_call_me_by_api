@@ -20,7 +20,7 @@
     "default": 15
   },
   "max_chars": {
-    "description": "转发到私聊的请求文本最大字符数，超出部分会被截断。",
+    "description": "转发到私聊的请求文本最大字符数。超出时优先保留最新消息，system/tools 各最多占 1/5。",
     "type": "int",
     "default": 4000
   },

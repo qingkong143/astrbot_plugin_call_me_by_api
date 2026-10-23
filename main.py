@@ -53,7 +53,7 @@ class Pending:
     created_at: float
 
 
-@register("call_me_by_api", "qingkong143", "将 AstrBot 私聊封装成 Anthropic 兼容 API", "1.1.2")
+@register("call_me_by_api", "qingkong143", "将 AstrBot 私聊封装成 Anthropic 兼容 API", "1.1.3")
 class MyPlugin(Star):
     def __init__(self, context: Context, config: dict[str, Any] | None = None):
         super().__init__(context)
@@ -407,19 +407,31 @@ class MyPlugin(Star):
                 return rid
 
     def _render(self, payload: dict[str, Any]) -> str:
-        parts = []
+        limit = max(1, self._max_chars)
+        # system/tools 只保留一小部分预算，避免把真正的对话内容挤掉。
+        side_cap = max(200, limit // 5)
+
+        sections: list[tuple[str, str]] = []
         system = payload.get("system")
         if system:
-            parts.append("【system】\n" + self._content_text(system))
+            sections.append((
+                "system",
+                self._clip(self._content_text(system), side_cap, "system 已截断"),
+            ))
         # 工具/命令类请求不特殊处理，直接把工具定义和选择一并转给人看。
         tools_text = self._tools_text(payload.get("tools"))
         if tools_text:
-            parts.append("【tools】\n" + tools_text)
+            sections.append(("tools", self._clip(tools_text, side_cap, "tools 已截断")))
         if payload.get("tool_choice") is not None:
-            parts.append(
-                "【tool_choice】\n"
-                + json.dumps(payload["tool_choice"], ensure_ascii=False)
-            )
+            sections.append((
+                "tool_choice",
+                self._clip(
+                    json.dumps(payload["tool_choice"], ensure_ascii=False),
+                    side_cap,
+                    "tool_choice 已截断",
+                ),
+            ))
+
         messages = payload.get("messages") or []
         # history_messages=0 表示不转发历史，注意不能用 [-0:]（等价于整个列表）。
         if self._history > 0:
@@ -428,11 +440,40 @@ class MyPlugin(Star):
             messages = []
         for m in messages:
             role = {"user": "用户", "assistant": "助手"}.get(m.get("role"), m.get("role"))
-            parts.append(f"【{role}】\n{self._content_text(m.get('content'))}")
-        text = "\n\n".join(parts)
-        if len(text) > self._max_chars:
-            text = text[: self._max_chars] + "\n…（已截断）"
-        return text
+            sections.append((str(role), self._content_text(m.get("content"))))
+
+        # 从最新内容向前填充预算：保证最后一条消息优先保留。
+        selected: list[str] = []
+        remaining = limit
+        omitted_older = False
+        for idx in range(len(sections) - 1, -1, -1):
+            label, body = sections[idx]
+            block = f"【{label}】\n{body}"
+            sep = 2 if selected else 0
+            if len(block) + sep <= remaining:
+                selected.insert(0, block)
+                remaining -= len(block) + sep
+                continue
+            if not selected:
+                # 最新一段本身就超长：保留开头，按剩余预算截断。
+                keep = max(0, remaining - len(label) - 5)
+                selected.insert(0, f"【{label}】\n{body[:keep]}…（已截断）")
+                # 截断的是最新一段，只有它前面还有段落时才算省略了更早内容。
+                omitted_older = idx > 0
+            else:
+                # 当前这段及其之前的段落都放不下了。
+                omitted_older = True
+            break
+
+        if omitted_older:
+            selected.insert(0, "…（更早内容已省略）")
+        return "\n\n".join(selected)
+
+    @staticmethod
+    def _clip(text: str, cap: int, note: str) -> str:
+        if len(text) <= cap:
+            return text
+        return text[:cap] + f"\n…（{note}）"
 
     def _tools_text(self, tools: Any) -> str:
         """把 tools 定义压缩成名字/描述列表，避免占用过多转发长度。"""

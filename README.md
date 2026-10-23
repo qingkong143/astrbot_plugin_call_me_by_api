@@ -24,7 +24,7 @@
 | `api_key` | string | 空 | 启用插件层校验时使用；留空会自动生成 `sk-` 随机串并写回配置 |
 | `reply_timeout` | int | `300` | 等待人工回复的超时时间（秒） |
 | `stream_keepalive` | int | `15` | 流式响应期间发送 SSE ping 的间隔（秒） |
-| `max_chars` | int | `4000` | 转发到私聊的请求文本最大字符数，超出截断 |
+| `max_chars` | int | `4000` | 转发文本最大字符数；超出时优先保留最新消息，system/tools 各最多占 1/5 |
 | `history_messages` | int | `6` | 转发到私聊的历史消息条数 |
 | `model_id` | string | `qingkong143-flash-4.1-arbirated` | 对外展示的模型 ID |
 | `model_display_name` | string | `qingkong143-flash-4.1-arbirated` | 模型列表中显示的名称 |
@@ -169,6 +169,8 @@ curl -X POST \
 - 消息中的 `tool_use` / `tool_result` 内容块：渲染为 `[tool_use ...]` / `[tool_result]`
 
 回复方式不变：`/apireply <请求ID> <内容>`，该内容会作为普通文本响应返回调用方。
+
+转发内容超过 `max_chars` 时，会优先保留最新的用户消息；`system` 与 `tools` 各自最多占 1/5，更早的内容会以 `…（更早内容已省略）` 标注。这样即使客户端的 system prompt 很长，真正要处理的请求也不会被截掉。
 
 ## 相关链接
 
